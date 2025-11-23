@@ -4,14 +4,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PetcatPlayer Admin Panel</title>
+<title>PetcatPlayer Admin Panel (.gz)</title>
+<script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
 <style>
-body { font-family: sans-serif; text-align: center; padding: 20px; background: #f4f4f4; }
-fieldset { display: inline-block; padding: 20px; border-radius: 8px; background: #fff; }
+body { font-family: sans-serif; text-align: center; padding: 20px; background: #b50101; }
+fieldset { display: inline-block; padding: 20px; border-radius: 8px; background: #971515; }
 input { padding: 8px; margin: 5px; width: 200px; }
 button { padding: 8px 12px; margin: 5px; }
 #libraryEditor { display:none; margin-top:20px; text-align:left; max-width: 800px; }
-textarea { width: 100%; height: 400px; }
+textarea { width: 100%; height: 400px; font-family: monospace; }
 </style>
 </head>
 <body>
@@ -25,17 +26,18 @@ textarea { width: 100%; height: 400px; }
 </div>
 
 <div id="libraryEditor">
-<h2>Library Editor</h2>
+<h2>Library Editor (.gz)</h2>
 <textarea id="libraryJSON"></textarea><br>
-<button id="saveButton" onclick="saveLibrary()">Save Library</button>
+<button onclick="saveLibrary()">Save Library</button>
 <button onclick="logout()">Logout</button>
 </div>
 
 <script>
-/* admin.js */
-
-// --- Şifre doğrulama ---
 const ADMIN_HASH = "c7852a01b0d462e672765add048986195593a22fc3b8e62ac5d64d223f0fde70";
+const REPO_OWNER = "PetCat2025";
+const REPO_NAME = "petcat-cat-byte-composer";
+const FILE_PATH = "data/library/classic.gz";
+let fileSha = null;
 
 async function sha256(message) {
     const msgBuffer = new TextEncoder().encode(message);
@@ -53,44 +55,42 @@ async function login() {
     const input = document.getElementById('adminPassword').value;
     const inputHash = await sha256(input);
     if(inputHash === ADMIN_HASH){
-        localStorage.setItem('petcat_admin_hash', ADMIN_HASH);
         document.getElementById('loginPanel').style.display = 'none';
         document.getElementById('libraryEditor').style.display = 'block';
-        await loadLibrary(); // Şifre doğruysa editor yüklenir
+        await loadLibrary();
     } else alert("Incorrect password!");
 }
 
 function logout() {
-    localStorage.removeItem('petcat_admin_hash');
     showLoginPanel();
 }
 
-// --- GitHub API işlemleri ---
-const REPO_OWNER = "PetCat2025";
-const REPO_NAME = "petcat-cat-byte-composer";
-const FILE_PATH = "src/library.mjs";
-let fileSha = null;
-
 async function loadLibrary() {
-    // Editor açıldığında library yüklenir, ama token prompt çıkmaz
     const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${FILE_PATH}`;
     const resp = await fetch(url);
     if(!resp.ok) return alert("Failed to fetch library: " + resp.statusText);
     const data = await resp.json();
     fileSha = data.sha;
-    const content = atob(data.content);
-    document.getElementById('libraryJSON').value = content;
+
+    const binaryString = atob(data.content);
+    const byteArray = Uint8Array.from(binaryString, c => c.charCodeAt(0));
+    const decompressed = pako.ungzip(byteArray, { to: 'string' });
+
+    document.getElementById('libraryJSON').value = decompressed;
 }
 
 async function saveLibrary() {
     const token = prompt("Enter GitHub Personal Access Token (with repo write access)");
     if(!token) return alert("Token required");
 
-    const content = btoa(document.getElementById('libraryJSON').value);
+    const contentStr = document.getElementById('libraryJSON').value;
+    const compressed = pako.gzip(contentStr);
+    const b64Content = btoa(String.fromCharCode(...compressed));
+
     const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/contents/${FILE_PATH}`;
     const body = {
-        message: "Update library via admin panel",
-        content: content,
+        message: "Update classic.gz via admin panel",
+        content: b64Content,
         sha: fileSha
     };
     const resp = await fetch(url, {
@@ -107,16 +107,7 @@ async function saveLibrary() {
     } else alert("Failed to update library: " + resp.statusText);
 }
 
-// Sayfa yüklendiğinde kontrol
-window.addEventListener('DOMContentLoaded', () => {
-    if(localStorage.getItem('petcat_admin_hash') === ADMIN_HASH){
-        document.getElementById('loginPanel').style.display = 'none';
-        document.getElementById('libraryEditor').style.display = 'block';
-        loadLibrary();
-    } else {
-        showLoginPanel();
-    }
-});
+window.addEventListener('DOMContentLoaded', showLoginPanel);
 </script>
 
 </body>
